@@ -1,1 +1,77 @@
+from machine import Pin
+import ujson
+import network
+import utime as time
+import dht
+import urequests as requests
 
+# Konfigurasi perangkat
+DEVICE_ID = "stargaze-esp32"
+WIFI_SSID = "I miss u so bad, stranger"
+WIFI_PASSWORD = "niyokcantik"
+TOKEN = "BBUS-O2IlKulbTtuy8AdvOeX0qnAtK1xx5T"
+
+# Pin untuk sensor
+DHT_PIN = Pin(15)  # DHT11 pada GPIO 15
+PIR_PIN = Pin(34, Pin.IN)  # PIR pada GPIO 34
+
+# Fungsi callback (jika menerima data dari Ubidots)
+def did_receive_callback(topic, message):
+    print('\n\nData Received! \ntopic = {0}, message = {1}'.format(topic, message))
+
+# Fungsi untuk membuat JSON data yang akan dikirim
+def create_json_data(temperature, humidity, motion):
+    data = ujson.dumps({
+        "device_id": DEVICE_ID,
+        "temp": temperature,
+        "humidity": humidity,
+        "motion": motion,
+        "type": "sensor"
+    })
+    return data
+
+# Fungsi untuk mengirim data ke Ubidots
+def send_data(temperature, humidity, motion):
+    url = "http://industrial.api.ubidots.com/api/v1.6/devices/" + DEVICE_ID
+    headers = {"Content-Type": "application/json", "X-Auth-Token": TOKEN}
+    data = {
+        "temp": temperature,
+        "humidity": humidity,
+        "motion": motion  # Mengirim status PIR
+    }
+    response = requests.post(url, json=data, headers=headers)
+    print("Done Sending Data!")
+    print("Response:", response.text)
+
+# Menghubungkan ke WiFi
+wifi_client = network.WLAN(network.STA_IF)
+wifi_client.active(True)
+print("Connecting device to WiFi...")
+wifi_client.connect(WIFI_SSID, WIFI_PASSWORD)
+
+while not wifi_client.isconnected():
+    print("Connecting...")
+    time.sleep(0.5)
+
+print("WiFi Connected!")
+print(wifi_client.ifconfig())
+
+# Inisialisasi sensor DHT11
+dht_sensor = dht.DHT11(DHT_PIN)
+
+while True:
+    try:
+        dht_sensor.measure()
+        motion_status = PIR_PIN.value()  # Membaca data dari PIR (1 = Gerakan terdeteksi, 0 = Tidak ada gerakan)
+    except:
+        print("Error reading sensors")
+        continue
+
+    # Menunggu sebentar sebelum mengirim data
+    time.sleep(0.5)
+
+    # Membuat data JSON dan mengirim ke Ubidots
+    telemetry_data_new = create_json_data(dht_sensor.temperature(), dht_sensor.humidity(), motion_status)
+    send_data(dht_sensor.temperature(), dht_sensor.humidity(), motion_status)
+    
+    time.sleep(5)  # Kirim data setiap 5 detik
